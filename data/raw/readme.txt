@@ -1,0 +1,1 @@
+The full metagenomic datasets analyzed in our study are publicly available in the curatedMetagenomicData repository (Bioconductor). To facilitate immediate testing and reproducibility, a script to generate a small-scale demonstration dataset is provided.
