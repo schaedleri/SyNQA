@@ -1,0 +1,3 @@
+Selection Methodology: Deterministic based on Phase 1.5 Guilds
+Target Pair (Max Z-diff in Rewiring group): ('s__Mock_Bacterium_103', 's__Mock_Bacterium_51')
+Control Pair (Top Abundance, Non-Rewiring): ('s__Mock_Bacterium_60', 's__Mock_Bacterium_27')
