@@ -18,7 +18,7 @@ By formulating disease-specific interaction rewiring as an energy minimization p
 │   ├── demonstration/          # Dummy/demonstration datasets for testing
 │   └── raw/                    # (Empty) Directory for user's full datasets
 ├── results/                    # Output directory for results and figures
-├── Master_Pipeline_Integrated_Full_Strict_MultiBeta.py  # Main execution script
+├── SyNQA.py  # Main execution script
 ├── requirements.txt            # Python dependencies
 ├── LICENSE                     # MIT License
 └── README.md
@@ -43,7 +43,7 @@ The pipeline is implemented in Python 3.10+. The optimization process utilizes S
 To execute the entire SyNQA pipeline sequentially (from data residualization, QUBO optimization, to cross-validation and figure generation), run the master script:
 
 ```bash
-python Master_Pipeline_Integrated_Full_Strict_MultiBeta.py
+python SyNQA.py
 ```
 
 Results, including selected microbial taxa lists, performance metrics, and network visualization figures, will be automatically saved in the `Final_Results_SyNQA_Strict/` directory.
