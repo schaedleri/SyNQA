@@ -50,7 +50,7 @@ warnings.filterwarnings("ignore")
 # GLOBAL CONFIGURATION
 # =====================================================================
 WORK_DIR = Path(".")
-DIR_RESULTS = WORK_DIR / "Final_Results_SyNQA_Strict"
+DIR_RESULTS = WORK_DIR / "Final_Results_SyNQA_Strict_demo"
 DIR_RESULTS.mkdir(exist_ok=True)
 
 FILE_X_RAW    = "X_all_raw.tsv"                  
@@ -66,15 +66,15 @@ CHAMPION_COST = 0.15
 ALPHA_RANGE = [1.0]
 
 # BETA and GAMMA are now identical ranges
-BETA_RANGE  = [0.0, 0.5, 1.0, 3.0, 5.0, 7.0, 10.0] 
-GAMMA_RANGE = [0.0, 0.5, 1.0, 3.0, 5.0, 7.0, 10.0] 
+BETA_RANGE  =  [1.0, 5.0] #[0.0, 0.5, 1.0, 3.0, 5.0, 7.0, 10.0] 
+GAMMA_RANGE =  [1.0, 5.0] #[0.0, 0.5, 1.0, 3.0, 5.0, 7.0, 10.0] 
 COST_RANGE  = [CHAMPION_COST]
-SWEEPS_RANGE = [10000]
+SWEEPS_RANGE = [1] #[10000]
 
 TOP_N_SELECTION = 60
-N_ENSEMBLE_TRIALS = 100
+N_ENSEMBLE_TRIALS = 10 #100
 FREQ_THRESHOLD = 0.5
-N_SA_READS = 300
+N_SA_READS = 50 #300
 SEED_BASE = 420
 N_JOBS = os.cpu_count() - 1 if os.cpu_count() and os.cpu_count() > 1 else 1
 
