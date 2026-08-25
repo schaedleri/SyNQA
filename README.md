@@ -13,6 +13,12 @@ resulting energy. Selection is validated through bootstrap resampling,
 label-permutation testing, and comparison against established
 feature-selection and network-inference methods.
 
+The workflow has two stages: `synqa_pipeline.py` runs selection and
+validation from raw data; `dualmodel_rescore.py` then re-ranks the
+selected taxa and runs the cross-cohort meta-analysis on top of those
+results, without re-running simulated annealing, bootstrap, or knockout
+analysis.
+
 ## How it works
 
 1. **Preprocessing**: raw counts are filtered by prevalence, CLR-transformed
@@ -32,6 +38,13 @@ feature-selection and network-inference methods.
    label-permutation testing assesses whether the number of selected
    edges exceeds chance; knockout (KO) analysis measures each selected
    taxon's contribution to the optimized energy.
+5. **Re-scoring & meta-analysis** (`dualmodel_rescore.py`, post-hoc): taxa
+   are re-ranked by a composite `score_causal` (energy contribution x
+   bootstrap frequency x sign consistency x stability), a GMM threshold
+   splits each cohort's ranking into a high-importance tier, and cohorts
+   are combined with a Stouffer meta-analysis. A fairness-check variant
+   (`score_causal_strict`) tests whether taxa with no surviving network
+   edge are getting an unearned advantage in the ranking.
 
 Selection (F_energy/J_energy, centered) and interpretation are kept
 separate throughout: every reported/interpreted quantity (taxon role,
@@ -56,6 +69,8 @@ Install with:
 pip install -r requirements.txt
 ```
 
+(`dualmodel_rescore.py` uses the same dependencies -- no extra packages needed.)
+
 ## Input data
 
 The pipeline expects, per cohort:
@@ -70,6 +85,8 @@ Edit the `DATA_ROOT` and `COHORTS` dictionary near the top of
 
 ## Usage
 
+### Stage 1: selection and validation (`synqa_pipeline.py`)
+
 ```bash
 python synqa_pipeline.py \
     --regress_covariates age,BMI,sex \
@@ -80,7 +97,26 @@ python synqa_pipeline.py \
     --out_dir results/
 ```
 
+### Stage 2: re-scoring and meta-analysis (`dualmodel_rescore.py`)
+
+Run on the `results/` directory produced by stage 1:
+
+```bash
+python dualmodel_rescore.py \
+    --results_dir results/ \
+    --out_dir results/ \
+    --top_n 10 --min_boot_prob 0.5 --min_stability_cross 0.5
+```
+
+This does not re-run simulated annealing, bootstrap, or KO -- it only
+reads `taxa_{tag}.tsv` and `all_permtest.tsv` from `--results_dir` and
+writes its own re-ranked/meta-analysis tables alongside them (see
+Output below). Use `--skip_rescore` or `--skip_meta` to run only one of
+the two steps.
+
 ### Key arguments
+
+**`synqa_pipeline.py`**
 
 | Argument | Description |
 |---|---|
@@ -98,9 +134,24 @@ python synqa_pipeline.py \
 
 Run `python synqa_pipeline.py --help` for the full list.
 
+**`dualmodel_rescore.py`**
+
+| Argument | Description |
+|---|---|
+| `--results_dir` | Directory containing `synqa_pipeline.py`'s output (`taxa_{tag}.tsv`, `all_permtest.tsv`) |
+| `--out_dir` | Where to write outputs (default: same as `--results_dir`) |
+| `--top_n` | How many top taxa to print per tag / cross-cohort table |
+| `--min_boot_prob` | Only print taxa with `boot_prob >=` this in the per-tag rescore tables |
+| `--min_stability_cross` | Stability threshold for the cross-cohort stable-taxa summary |
+| `--weight_by_n` | Weight each cohort's z-score by `sqrt(sample size)` instead of equal weighting (meta-analysis only) |
+| `--skip_rescore` | Skip the re-ranking step, only run the meta-analysis |
+| `--skip_meta` | Skip the meta-analysis step, only run the re-ranking |
+
+Run `python dualmodel_rescore.py --help` for the full list.
+
 ## Output
 
-For each cohort/rank combination (tagged `{cohort}_{rank}`), the pipeline
+For each cohort/rank combination (tagged `{cohort}_{rank}`), `synqa_pipeline.py`
 writes to `--out_dir`:
 
 - `taxa_{tag}.tsv` -- selected taxa with effect sizes, bootstrap
@@ -116,6 +167,31 @@ Combined across all cohorts/ranks run in one invocation:
 - `all_taxa.tsv`, `all_ranked.tsv`, `all_permtest.tsv`
 - `gmm_centering_bic_diagnostics.tsv` -- GMM threshold diagnostics
   (method used, Ashman's D, BIC gap) for every cohort/rank pattern
+
+`dualmodel_rescore.py` then adds, per cohort/rank tag:
+
+- `rank_{tag}_Dual_rescored.tsv` -- taxa re-ranked by `score_causal`,
+  with the GMM high-importance flag and fairness-check columns
+- `bias_check_{tag}.tsv` -- per-taxon F/J score fairness check
+  (`score_causal` vs the `score_causal_strict` sensitivity variant)
+- `gmm_plots/gmm_threshold_{tag}.jpg` -- histogram of the K=2 GMM fit
+  used to set the high-importance threshold
+
+And combined across all tags:
+
+- `all_ranked_rescored.tsv` -- combined re-ranked table
+- `bias_check_summary.tsv` -- fairness-check summary across patterns
+- `gmm_plots/gmm_threshold_ALL_PATTERNS.jpg` -- combined GMM overview
+- `tail_vs_top_networkness.tsv`, `turnover_top_vs_tail.tsv`,
+  `top_vs_tail_summary.tsv` -- top-tier vs. tail comparisons (network
+  dominance, cross-cohort reproducibility)
+- `filter_and_selection_summary.tsv` -- filtering/selection stats per tag
+- `cross_cohort_{rank}_rescored.tsv`, `confirmed_candidates_{rank}.tsv` --
+  taxa stable across all cohorts, and the strict cross-cohort-stable +
+  GMM-high-importance-in-every-cohort subset
+- `permutation_test_summary.tsv`, `meta_analysis_summary.tsv` -- the
+  reformatted permutation-test table and the Stouffer meta-analysis
+  across cohorts
 
 ## Citation
 
