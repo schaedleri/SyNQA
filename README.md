@@ -1,61 +1,128 @@
+# SyNQA -- Synergistic Network QUBO Analysis
 
+SyNQA formulates microbiome biomarker discovery as a quadratic
+unconstrained binary optimization (QUBO) problem that jointly optimizes:
 
-```markdown
-# SyNQA: Synergistic Network QUBO Analysis
+- **F**: standardized single-taxon effect size (Welch's t-statistic on
+  CLR-transformed abundances between two disease groups)
+- **J**: pairwise correlation divergence (Fisher z-transformed
+  difference in Pearson correlation between the two groups)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+Simulated annealing selects the taxon subset that minimizes the
+resulting energy. Selection is validated through bootstrap resampling,
+label-permutation testing, and comparison against established
+feature-selection and network-inference methods.
 
-## About SyNQA
-Synergistic Network QUBO Analysis (SyNQA) is a computational framework that reframes biomarker discovery from a conventional univariate ranking to an interaction-aware combinatorial optimization problem. 
+## How it works
 
-By formulating disease-specific interaction rewiring as an energy minimization problem of a Quadratic Unconstrained Binary Optimization (QUBO) model, SyNQA effectively extracts robust, non-redundant, and mechanistically interpretable feature subsets without relying on black-box machine learning algorithms. While originally applied to human gut microbiome data for colorectal cancer, its data-agnostic nature allows for potential adaptation to various high-dimensional omics modalities.
+1. **Preprocessing**: raw counts are filtered by prevalence, CLR-transformed
+   with a data-driven pseudo-count, and optionally adjusted for covariates
+   (e.g. age, sex, BMI) via per-taxon OLS regression.
+2. **F/J construction**: single-taxon effect sizes (F) and pairwise
+   correlation divergence (J) are computed from the CLR-transformed data.
+   Edge existence uses a fixed threshold (`|Z| >= edge_z_thresh`); the
+   centering point used to drive the optimizer is determined by a
+   data-driven Gaussian-mixture-model (GMM) procedure (Ashman's D
+   separation statistic with a BIC gate), falling back to the empirical
+   median when no statistically supported bimodal structure is present.
+3. **Selection**: simulated annealing minimizes `E(s) = -F.s - s.J.s`
+   over the binary selection vector `s`, run from multiple random seeds
+   to check convergence.
+4. **Validation**: bootstrap resampling estimates selection stability;
+   label-permutation testing assesses whether the number of selected
+   edges exceeds chance; knockout (KO) analysis measures each selected
+   taxon's contribution to the optimized energy.
 
-## Repository Structure
-```text
-.
-├── data/
-│   ├── demonstration/          # Dummy/demonstration datasets for testing
-│   └── raw/                    # (Empty) Directory for user's full datasets
-├── results/                    # Output directory for results and figures
-├── SyNQA.py  # Main execution script
-├── requirements.txt            # Python dependencies
-├── LICENSE                     # MIT License
-└── README.md
+Selection (F_energy/J_energy, centered) and interpretation are kept
+separate throughout: every reported/interpreted quantity (taxon role,
+network centrality, clustering) uses the original signed, degree-
+normalized F/J values, not the centered energies used to drive the
+optimizer.
+
+## Requirements
+
+```
+numpy
+pandas
+scipy
+scikit-learn
+networkx
+matplotlib
 ```
 
-## Requirements and Installation
-The pipeline is implemented in Python 3.10+. The optimization process utilizes Simulated Annealing provided by D-Wave's `dwave-neal` package.
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/YourUsername/SyNQA.git
-   cd SyNQA
-   ```
-2. Install the required packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-*(Note: `requirements.txt` includes `numpy`, `pandas`, `scipy`, `scikit-learn`, `dwave-neal`, `networkx`, `matplotlib`, `seaborn`, etc.)*
-
-## Usage
-To execute the entire SyNQA pipeline sequentially (from data residualization, QUBO optimization, to cross-validation and figure generation), run the master script:
+Install with:
 
 ```bash
-python SyNQA.py
+pip install -r requirements.txt
 ```
 
-Results, including selected microbial taxa lists, performance metrics, and network visualization figures, will be automatically saved in the `Final_Results_SyNQA_Strict/` directory.
+## Input data
 
-## Data Availability
-The full metagenomic datasets analyzed in our study are publicly available in the `curatedMetagenomicData` repository (Bioconductor). To facilitate immediate testing and reproducibility, a small-scale demonstration dataset is provided in the `data/demonstration/` directory.
+The pipeline expects, per cohort:
+
+- a metadata TSV with sample IDs, a disease/control group column, and
+  (optionally) covariate columns (age, BMI, sex) and a read-count column
+- a taxonomic abundance TSV (samples x taxa, or taxa x samples) with
+  rank-prefixed taxon names (e.g. `s__Escherichia_coli`)
+
+Edit the `DATA_ROOT` and `COHORTS` dictionary near the top of
+`synqa_pipeline.py` to point at your own data paths.
+
+## Usage
+
+```bash
+python synqa_pipeline.py \
+    --regress_covariates age,BMI,sex \
+    --cohort all --rank all \
+    --run_ko --run_perm \
+    --n_seeds 30 --n_boot 1000 --n_perm 2000 \
+    --centering_mode gmm --center_source resample \
+    --out_dir results/
+```
+
+### Key arguments
+
+| Argument | Description |
+|---|---|
+| `--cohort`, `--rank` | Which cohort(s)/taxonomic rank(s) to run (`s`/`g`/`f`/`all`) |
+| `--n_seeds` | Number of simulated-annealing random seeds (for convergence assessment) |
+| `--n_boot` | Number of bootstrap resamples (`0` skips bootstrap for a lightweight run) |
+| `--run_ko` | Run knockout analysis on the selected taxa |
+| `--run_perm` | Run label-permutation testing (`--n_perm`, `--perm_n_seeds`) |
+| `--regress_covariates` | Comma-separated covariates to regress out of CLR values (e.g. `age,BMI,sex`) |
+| `--centering_mode` | `median` (fixed 50/50 split) or `gmm` (data-driven, falls back to median) |
+| `--center_source` | `resample` (recompute the centering point per bootstrap/permutation draw) or `observed` (freeze it at the value computed from the real-label full dataset) |
+| `--ashman_d_threshold` | Minimum Ashman's D for the GMM crossing point to be used instead of the median fallback |
+| `--edge_z_thresh` | Minimum `|Z|` for a taxon pair to be considered an edge (default 1.96) |
+| `--min_prev`, `--group_mode`, `--min_info_prev`, `--noise_floor_pct`, `--info_combine` | Prevalence/noise-floor filtering parameters |
+
+Run `python synqa_pipeline.py --help` for the full list.
+
+## Output
+
+For each cohort/rank combination (tagged `{cohort}_{rank}`), the pipeline
+writes to `--out_dir`:
+
+- `taxa_{tag}.tsv` -- selected taxa with effect sizes, bootstrap
+  probability, stability, network role, and cluster assignment
+- `summary_{tag}.tsv` -- landscape summary (K, convergence diagnostics,
+  GMM centering diagnostics, Ashman's D, BIC gap)
+- `rank_{tag}_Dual.tsv` -- taxa ranked by causal importance score
+- `ko_{tag}_Dual.tsv` -- knockout analysis results (if `--run_ko`)
+- `permtest_{tag}.tsv` -- permutation-test results (if `--run_perm`)
+
+Combined across all cohorts/ranks run in one invocation:
+
+- `all_taxa.tsv`, `all_ranked.tsv`, `all_permtest.tsv`
+- `gmm_centering_bic_diagnostics.tsv` -- GMM threshold diagnostics
+  (method used, Ashman's D, BIC gap) for every cohort/rank pattern
 
 ## Citation
-If you use SyNQA in your research, please cite our paper:
 
-> Arita, K., Nakano, Y., & Miyazaki, S. (2026). Synergistic Network QUBO Analysis (SyNQA): A combinatorial optimization framework for interaction-aware microbiome feature selection. *BMC Bioinformatics* (Under Review).
+If you use this code, please cite:
+
+[citation to be added on publication]
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-```
+
+[license to be added]
