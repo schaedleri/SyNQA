@@ -58,8 +58,59 @@ RANKS = ["s", "g", "f"]
 
 
 def get_cohorts(data_root):
-    return {name: {"meta": os.path.join(data_root, m), "X": os.path.join(data_root, x)}
-            for name, (m, x) in COHORT_FILES.items()}
+    """Cohorts available under data_root: the COHORT_FILES entries whose files
+    exist, plus any other meta_<name>.tsv / X_<name>.tsv pair in the directory.
+    If nothing is found, the COHORT_FILES entries are returned so that the
+    caller can report which files are missing."""
+    known = {name: {"meta": os.path.join(data_root, m), "X": os.path.join(data_root, x)}
+             for name, (m, x) in COHORT_FILES.items()}
+    found = {n: p for n, p in known.items()
+             if os.path.exists(p["meta"]) and os.path.exists(p["X"])}
+    if os.path.isdir(data_root):
+        for fname in sorted(os.listdir(data_root)):
+            if fname.startswith("meta_") and fname.endswith(".tsv"):
+                name = fname[len("meta_"):-len(".tsv")]
+                meta = os.path.join(data_root, fname)
+                X = os.path.join(data_root, f"X_{name}.tsv")
+                if name not in found and os.path.exists(X):
+                    found[name] = {"meta": meta, "X": X}
+    return found if found else known
+
+
+def split_pooled_dataset(pooled_dir, dest_dir):
+    """Convert a pooled dataset into the per-cohort layout used by SyNQA.
+
+    Expects in pooled_dir:
+      X_all_raw.tsv   samples x taxa abundances (first column = sample ID)
+      y_all.tsv       sample ID + one 0/1 column (1 = disease, 0 = control)
+      study_id.tsv    sample ID + one column with the cohort name
+      covariates.tsv  (optional) sample ID + covariate columns, e.g. Age, Sex, BMI
+
+    Writes meta_<cohort>.tsv and X_<cohort>.tsv for every cohort into dest_dir
+    and returns the list of cohort names.
+    """
+    X = pd.read_csv(os.path.join(pooled_dir, "X_all_raw.tsv"), sep="\t", index_col=0)
+    y = pd.read_csv(os.path.join(pooled_dir, "y_all.tsv"), sep="\t", index_col=0).iloc[:, 0]
+    study = pd.read_csv(os.path.join(pooled_dir, "study_id.tsv"), sep="\t", index_col=0).iloc[:, 0]
+    cov_path = os.path.join(pooled_dir, "covariates.tsv")
+    cov = pd.read_csv(cov_path, sep="\t", index_col=0) if os.path.exists(cov_path) else None
+
+    ids = X.index.intersection(y.index).intersection(study.index)
+    if len(ids) == 0:
+        raise ValueError(f"No sample IDs shared by the pooled files in {pooled_dir}.")
+
+    os.makedirs(dest_dir, exist_ok=True)
+    names = []
+    for cohort in sorted(study.loc[ids].unique()):
+        sid = [s for s in ids if study[s] == cohort]
+        meta = pd.DataFrame({"SampleID": sid,
+                             "Group": ["CRC" if int(y[s]) == 1 else "Healthy" for s in sid]})
+        if cov is not None:
+            meta = meta.join(cov.reindex(sid).reset_index(drop=True))
+        meta.to_csv(os.path.join(dest_dir, f"meta_{cohort}.tsv"), sep="\t", index=False)
+        X.loc[sid].to_csv(os.path.join(dest_dir, f"X_{cohort}.tsv"), sep="\t")
+        names.append(cohort)
+    return names
 
 
 COVARIATE_ALIASES = {
@@ -1253,7 +1304,12 @@ def parse_args(argv=None):
     parser.add_argument("--data_root", default=DEFAULT_DATA_ROOT,
                         help="Directory containing the cohort metadata/abundance files "
                              "(env: SYNQA_DATA_ROOT).")
-    parser.add_argument("--cohort", default="all", choices=list(COHORT_FILES.keys()) + ["all"])
+    parser.add_argument("--pooled_dir", default=None,
+                        help="Use a pooled dataset (X_all_raw.tsv, y_all.tsv, study_id.tsv, "
+                             "optional covariates.tsv; see data/demonstration) instead of "
+                             "--data_root. It is split by study into <out_dir>/_pooled_cohorts.")
+    parser.add_argument("--cohort", default="all",
+                        help="Cohort name, or 'all' for every cohort found.")
     parser.add_argument("--rank", default="all", choices=["s", "g", "f", "all"])
     parser.add_argument("--n_seeds", type=int, default=20, help="SA restarts.")
     parser.add_argument("--n_boot", type=int, default=100, help="Bootstrap resamples (0 to skip).")
@@ -1292,16 +1348,26 @@ def main():
     regress_covariates = (args.regress_covariates.split(",")
                           if args.regress_covariates else None)
 
-    all_cohorts = get_cohorts(args.data_root)
-    cohorts_to_run = ({args.cohort: all_cohorts[args.cohort]}
-                      if args.cohort in all_cohorts else all_cohorts)
-    ranks_to_run = [args.rank] if args.rank in RANKS else RANKS
-
     out_dir = args.out_dir
     os.makedirs(out_dir, exist_ok=True)
 
+    data_root = args.data_root
+    if args.pooled_dir:
+        data_root = os.path.join(out_dir, "_pooled_cohorts")
+        names = split_pooled_dataset(args.pooled_dir, data_root)
+        print(f"Split pooled dataset {args.pooled_dir} into cohorts {names} -> {data_root}")
+
+    all_cohorts = get_cohorts(data_root)
+    if args.cohort == "all":
+        cohorts_to_run = all_cohorts
+    elif args.cohort in all_cohorts:
+        cohorts_to_run = {args.cohort: all_cohorts[args.cohort]}
+    else:
+        sys.exit(f"Unknown cohort {args.cohort!r}. Available: {sorted(all_cohorts)}")
+    ranks_to_run = [args.rank] if args.rank in RANKS else RANKS
+
     print("\nSyNQA pipeline")
-    print(f"  data_root: {args.data_root}")
+    print(f"  data_root: {data_root}")
     print(f"  cohorts: {list(cohorts_to_run.keys())}")
     print(f"  ranks  : {ranks_to_run}")
     print(f"  regress_covariates: {regress_covariates}")
@@ -1316,7 +1382,7 @@ def main():
 
     for cohort_name, paths in cohorts_to_run.items():
         if not (os.path.exists(paths["meta"]) and os.path.exists(paths["X"])):
-            print(f"Skipping {cohort_name}: input files not found under {args.data_root}")
+            print(f"Skipping {cohort_name}: input files not found under {data_root}")
             continue
         for rank_code in ranks_to_run:
             try:
