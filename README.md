@@ -199,7 +199,9 @@ python synqa_rescore.py --results_dir results/ --weight_by_n \
 | Argument | Description |
 |---|---|
 | `--data_root` | Directory with the cohort input files (default: `$SYNQA_DATA_ROOT` or `./data`) |
-| `--cohort`, `--rank` | Which cohort(s)/taxonomic rank(s) to run (`s`/`g`/`f`/`all`) |
+| `--pooled_dir` | Use a pooled dataset (`X_all_raw.tsv`, `y_all.tsv`, `study_id.tsv`, optional `covariates.tsv`; see `data/demonstration`) instead of `--data_root`. It is split by study into `<out_dir>/_pooled_cohorts` |
+| `--cohort` | Cohort name, or `all` for every cohort found |
+| `--rank` | Taxonomic rank to run: `s`, `g`, `f` or `all` |
 | `--n_seeds` | Number of simulated-annealing random seeds (for convergence assessment) |
 | `--n_boot` | Number of bootstrap resamples (`0` skips bootstrap for a lightweight run) |
 | `--run_ko` | Run knockout analysis on the selected taxa |
